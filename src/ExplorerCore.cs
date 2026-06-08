@@ -8,6 +8,7 @@ global using UnityEngine.UI;
 global using UniverseLib;
 global using UniverseLib.Utility;
 using UnityExplorer.Config;
+using UnityExplorer.McpBridge;
 using UnityExplorer.ObjectExplorer;
 using UnityExplorer.Runtime;
 using UnityExplorer.UI;
@@ -69,6 +70,7 @@ namespace UnityExplorer
             UIManager.InitUI();
 
             Log($"{NAME} {VERSION} ({Universe.Context}) initialized.");
+            McpBridgeServer.Start();
 
             // InspectorManager.Inspect(typeof(Tests.TestClass));
         }

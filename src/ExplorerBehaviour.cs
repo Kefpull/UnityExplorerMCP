@@ -1,4 +1,5 @@
-﻿using UnityExplorer.UI;
+using UnityExplorer.McpBridge;
+using UnityExplorer.UI;
 #if CPP
 #if UNHOLLOWER
 using UnhollowerRuntimeLib;
@@ -32,6 +33,7 @@ namespace UnityExplorer
         internal void Update()
         {
             ExplorerCore.Update();
+            McpBridgeServer.ProcessMainThreadQueue();
         }
 
         // For editor, to clean up objects
@@ -47,6 +49,8 @@ namespace UnityExplorer
         {
             if (quitting) return;
             quitting = true;
+
+            McpBridgeServer.Stop();
 
             TryDestroy(UIManager.UIRoot?.transform.root.gameObject);
 

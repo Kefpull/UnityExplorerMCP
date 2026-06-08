@@ -8,6 +8,89 @@ function New-ReleaseZip {
     Compress-Archive -Path (Join-Path $SourcePath '*') -DestinationPath $DestinationPath -Force
 }
 
+function Copy-DirectoryContentsExcluding {
+    param(
+        [string]$SourcePath,
+        [string]$DestinationPath,
+        [string[]]$ExcludedRelativePaths
+    )
+
+    New-Item -Path $DestinationPath -ItemType "directory" -Force | Out-Null
+
+    $SourceFullPath = (Resolve-Path $SourcePath).Path
+    $Excluded = @{}
+    foreach ($Path in $ExcludedRelativePaths) {
+        $Excluded[$Path.Replace('\', '/')] = $true
+    }
+
+    Get-ChildItem -Path $SourceFullPath -Recurse -Force | ForEach-Object {
+        $RelativePath = $_.FullName.Substring($SourceFullPath.Length).TrimStart('\', '/').Replace('\', '/')
+
+        if ($Excluded.ContainsKey($RelativePath)) {
+            return
+        }
+
+        $TargetPath = Join-Path $DestinationPath $RelativePath
+        if ($_.PSIsContainer) {
+            New-Item -Path $TargetPath -ItemType "directory" -Force | Out-Null
+        }
+        else {
+            $TargetDir = Split-Path $TargetPath -Parent
+            New-Item -Path $TargetDir -ItemType "directory" -Force | Out-Null
+            Copy-Item -LiteralPath $_.FullName -Destination $TargetPath -Force
+        }
+    }
+}
+
+function Build-EditorPackage {
+    $StandalonePath = "Release/UnityExplorer.Standalone.Mono"
+    $EditorStagePath = "Release/UnityExplorer.Editor.Package"
+    $EditorRuntimePath = Join-Path $EditorStagePath "Runtime"
+
+    Remove-Item $EditorStagePath -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-DirectoryContentsExcluding -SourcePath "UnityEditorPackage" -DestinationPath $EditorStagePath -ExcludedRelativePaths @(
+        "Runtime/UnityExplorer.STANDALONE.Mono.dll",
+        "Runtime/UniverseLib.Mono.dll"
+    )
+
+    Copy-Item -Path "$StandalonePath/UnityExplorer.STANDALONE.Mono.dll" -Destination $EditorRuntimePath -Force
+    Copy-Item -Path "$StandalonePath/UniverseLib.Mono.dll" -Destination $EditorRuntimePath -Force
+
+    New-ReleaseZip -SourcePath $EditorStagePath -DestinationPath "Release/UnityExplorer.Editor.zip"
+}
+
+function Build-McpSidecar {
+    $SidecarPath = "sidecar"
+    $SidecarReleasePath = "Release/UnityExplorer.MCP.Sidecar"
+
+    Push-Location $SidecarPath
+    try {
+        New-Item -Path "../Release" -ItemType "directory" -Force | Out-Null
+
+        if (Test-Path "package-lock.json") {
+            npm ci
+        }
+        else {
+            npm install
+        }
+
+        npm run build
+        npm pack --pack-destination "../Release"
+    }
+    finally {
+        Pop-Location
+    }
+
+    Remove-Item $SidecarReleasePath -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -Path $SidecarReleasePath -ItemType "directory" -Force
+    Copy-Item -Path "sidecar/package.json" -Destination $SidecarReleasePath -Force
+    Copy-Item -Path "sidecar/package-lock.json" -Destination $SidecarReleasePath -Force
+    Copy-Item -Path "sidecar/USAGE.md" -Destination $SidecarReleasePath -Force
+    Copy-Item -Path "sidecar/dist" -Destination "$SidecarReleasePath/dist" -Recurse -Force
+
+    New-ReleaseZip -SourcePath $SidecarReleasePath -DestinationPath "Release/UnityExplorer.MCP.Sidecar.zip"
+}
+
 # ----------- MelonLoader IL2CPP (net6) -----------
 dotnet build src/UnityExplorer.sln -c Release_ML_Cpp_net6
 $Path = "Release\UnityExplorer.MelonLoader.IL2CPP.net6preview"
@@ -150,8 +233,7 @@ Remove-Item $Path/UnhollowerBaseLib.dll
 New-ReleaseZip -SourcePath $Path -DestinationPath "$Path/../UnityExplorer.Standalone.IL2CPP.zip"
 
 # ----------- Editor (mono) -----------
-$Path1 = "Release/UnityExplorer.Standalone.Mono"
-$Path2 = "UnityEditorPackage/Runtime"
-Copy-Item $Path1/UnityExplorer.STANDALONE.Mono.dll -Destination $Path2
-Copy-Item $Path1/UniverseLib.Mono.dll -Destination $Path2
-New-ReleaseZip -SourcePath "UnityEditorPackage" -DestinationPath "Release/UnityExplorer.Editor.zip"
+Build-EditorPackage
+
+# ----------- MCP Sidecar (Node.js) -----------
+Build-McpSidecar
